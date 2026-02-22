@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Linking, Alert } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Linking, Alert, Animated, Vibration } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { RootStackParamList } from '../types/navigation';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import * as Notifications from 'expo-notifications';
+import { BACKEND_URL, NOTIFICATION_POLL_INTERVAL } from '../config';
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
 
@@ -14,14 +15,29 @@ export default function HomeScreen() {
     const [userName, setUserName] = useState<string | null>('');
     const [blindName, setBlindName] = useState<string | null>('');
     const [blindPhone, setBlindPhone] = useState<string | null>('');
+    const [isBackendConnected, setIsBackendConnected] = useState(false);
+    const [bannerNotif, setBannerNotif] = useState<{ title: string; message: string } | null>(null);
+    const bannerAnim = useRef(new Animated.Value(-120)).current;
     const navigation = useNavigation<NavigationProp>();
+    const notifPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Show in-app notification banner
+    const showBanner = (title: string, message: string) => {
+        setBannerNotif({ title, message });
+        Vibration.vibrate(400);
+        Animated.sequence([
+            Animated.spring(bannerAnim, { toValue: 0, useNativeDriver: true, speed: 12 }),
+            Animated.delay(4000),
+            Animated.timing(bannerAnim, { toValue: -120, duration: 300, useNativeDriver: true }),
+        ]).start(() => setBannerNotif(null));
+    };
 
     useEffect(() => {
         const loadUserData = async () => {
             try {
                 const name = await AsyncStorage.getItem('userName');
                 const pName = await AsyncStorage.getItem('blindName');
-                const pPhone = await AsyncStorage.getItem('userPhone'); // Let's assume the phone they entered connects to both
+                const pPhone = await AsyncStorage.getItem('userPhone');
 
                 if (name) setUserName(name);
                 if (pName) setBlindName(pName);
@@ -32,6 +48,37 @@ export default function HomeScreen() {
         };
 
         loadUserData();
+    }, []);
+
+    // Poll the backend for notifications (in-app banners, no expo-notifications needed)
+    useEffect(() => {
+        const pollNotifications = async () => {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/notifications`);
+                const data = await response.json();
+                setIsBackendConnected(true);
+
+                if (data.notifications && data.notifications.length > 0) {
+                    for (const notif of data.notifications) {
+                        showBanner(
+                            notif.title || '\u{1F6A8} VisionMate Alert',
+                            notif.message
+                        );
+                    }
+                }
+            } catch (e) {
+                setIsBackendConnected(false);
+            }
+        };
+
+        // First poll immediately
+        pollNotifications();
+
+        // Then poll on interval
+        notifPollRef.current = setInterval(pollNotifications, NOTIFICATION_POLL_INTERVAL);
+        return () => {
+            if (notifPollRef.current) clearInterval(notifPollRef.current);
+        };
     }, []);
 
     const handleCall = () => {
@@ -46,13 +93,30 @@ export default function HomeScreen() {
 
     return (
         <SafeAreaView style={styles.safeArea}>
+            {/* In-App Notification Banner */}
+            {bannerNotif && (
+                <Animated.View style={[styles.notifBanner, { transform: [{ translateY: bannerAnim }] }]}>
+                    <View style={styles.notifIcon}>
+                        <Ionicons name="warning" size={24} color="#FFF" />
+                    </View>
+                    <View style={styles.notifTextContainer}>
+                        <Text style={styles.notifTitle}>{bannerNotif.title}</Text>
+                        <Text style={styles.notifMessage} numberOfLines={2}>{bannerNotif.message}</Text>
+                    </View>
+                </Animated.View>
+            )}
+
             <View style={styles.container}>
                 {/* Header Section */}
                 <View style={styles.header}>
                     <Text style={styles.greeting}>Hello, {userName}</Text>
                     <View style={styles.statusBadge}>
-                        <View style={styles.statusDot} />
-                        <Text style={styles.statusText}>Connected to {blindName}'s VisionMate</Text>
+                        <View style={[styles.statusDot, { backgroundColor: isBackendConnected ? '#34C759' : '#FF9500' }]} />
+                        <Text style={styles.statusText}>
+                            {isBackendConnected
+                                ? `Connected to ${blindName}'s VisionMate`
+                                : 'Connecting to VisionMate...'}
+                        </Text>
                     </View>
                 </View>
 
@@ -252,5 +316,44 @@ const styles = StyleSheet.create({
         right: 24,
         padding: 8,
     },
-
+    notifBanner: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 100,
+        backgroundColor: '#FF3B30',
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingTop: 50,
+        paddingBottom: 16,
+        paddingHorizontal: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+        elevation: 20,
+    },
+    notifIcon: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(255,255,255,0.25)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    notifTextContainer: {
+        flex: 1,
+    },
+    notifTitle: {
+        color: '#FFF',
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    notifMessage: {
+        color: 'rgba(255,255,255,0.9)',
+        fontSize: 13,
+        marginTop: 2,
+    },
 });

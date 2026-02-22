@@ -1,21 +1,22 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, TouchableOpacity, SafeAreaView, Platform, Alert } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Platform, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, PROVIDER_DEFAULT, Region } from 'react-native-maps';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
 import { useNavigation } from '@react-navigation/native';
+import { BACKEND_URL, LOCATION_POLL_INTERVAL } from '../config';
 
 export default function MapScreen() {
     const [userName, setUserName] = useState<string | null>(null);
     const [blindName, setBlindName] = useState<string | null>(null);
+    const [isConnected, setIsConnected] = useState(false);
     const navigation = useNavigation();
 
-    // In the future, this will be updated via WebSockets/Bluetooth from the glasses.
-    // For now, we simulate a dummy location.
+    // Live location from laptop backend
     const [glassesLocation, setGlassesLocation] = useState({
-        latitude: 20.5937,
-        longitude: 78.9629,
+        latitude: 12.926516,
+        longitude: 77.526422,
     });
 
     useEffect(() => {
@@ -23,18 +24,38 @@ export default function MapScreen() {
             try {
                 const name = await AsyncStorage.getItem('userName');
                 const blindPerson = await AsyncStorage.getItem('blindName');
-                if (name) {
-                    setUserName(name);
-                }
-                if (blindPerson) {
-                    setBlindName(blindPerson);
-                }
+                if (name) setUserName(name);
+                if (blindPerson) setBlindName(blindPerson);
             } catch (e) {
                 console.error('Failed to load user data', e);
             }
         };
 
         loadUserData();
+
+        // Poll location from backend every 3 seconds
+        const pollLocation = async () => {
+            try {
+                const response = await fetch(`${BACKEND_URL}/api/location`);
+                const data = await response.json();
+                if (data.latitude && data.longitude) {
+                    setGlassesLocation({
+                        latitude: data.latitude,
+                        longitude: data.longitude,
+                    });
+                    setIsConnected(true);
+                }
+            } catch (e) {
+                console.log('Location poll failed:', e);
+                setIsConnected(false);
+            }
+        };
+
+        // Initial fetch
+        pollLocation();
+        const interval = setInterval(pollLocation, LOCATION_POLL_INTERVAL);
+
+        return () => clearInterval(interval);
     }, []);
 
     const triggerEmergencyAlert = async () => {
@@ -100,8 +121,10 @@ export default function MapScreen() {
                             <View>
                                 <Text style={styles.headerText}>Hello, {userName}</Text>
                                 <View style={styles.statusBadge}>
-                                    <View style={styles.statusDot} />
-                                    <Text style={styles.subHeaderText}>Tracking {blindName ? blindName : "Glasses"}</Text>
+                                    <View style={[styles.statusDot, { backgroundColor: isConnected ? '#34C759' : '#FF3B30' }]} />
+                                    <Text style={styles.subHeaderText}>
+                                        {isConnected ? `Tracking ${blindName ? blindName : "Glasses"}` : "Connecting..."}
+                                    </Text>
                                 </View>
                             </View>
                         </View>
