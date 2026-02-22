@@ -42,19 +42,18 @@ class GPSTracker:
                 self.mock_path = self._generate_mock_path()
     
     def _generate_mock_path(self) -> list:
-        """Generate a mock GPS path for testing (Bangalore route)"""
-        # Sample path: Indiranagar to Majestic
+        """Generate a mock GPS path for testing (RR Nagar, Bangalore)"""
         return [
-            (12.9716, 77.5946),  # Start: Indiranagar
-            (12.9720, 77.5950),
-            (12.9730, 77.5960),
-            (12.9740, 77.5965),  # Walking to bus stop
-            (12.9750, 77.5970),  # Bus stop
-            (12.9760, 77.5920),  # On bus
-            (12.9770, 77.5850),
-            (12.9780, 77.5800),
-            (12.9785, 77.5750),
-            (12.9767, 77.5715),  # Near Majestic
+            (12.926516, 77.526422),  # Start: RR Nagar
+            (12.926600, 77.526500),
+            (12.926700, 77.526600),
+            (12.926800, 77.526700),
+            (12.926900, 77.526800),
+            (12.927000, 77.526900),
+            (12.927100, 77.527000),
+            (12.927200, 77.527100),
+            (12.927300, 77.527200),
+            (12.927400, 77.527300),
         ]
     
     def start(self):
