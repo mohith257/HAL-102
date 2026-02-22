@@ -1,0 +1,240 @@
+"""
+GPS Position Tracking
+Supports both real GPS modules and mock GPS for testing
+"""
+
+import logging
+import time
+import threading
+from typing import Optional, Tuple
+from config import GPS_MOCK_MODE, GPS_PORT, GPS_BAUDRATE
+
+logger = logging.getLogger(__name__)
+
+
+class GPSTracker:
+    """
+    GPS position tracker with mock mode for testing
+    """
+    
+    def __init__(self, mock_mode: bool = GPS_MOCK_MODE):
+        self.mock_mode = mock_mode
+        self.current_position = None
+        self.last_update = None
+        self.speed = 0.0  # m/s
+        self.heading = 0.0  # degrees
+        self.is_running = False
+        
+        if mock_mode:
+            logger.info("GPS Tracker initialized in MOCK mode")
+            self.mock_path_index = 0
+            self.mock_path = self._generate_mock_path()
+        else:
+            logger.info(f"GPS Tracker initialized on {GPS_PORT}")
+            try:
+                import serial
+                self.serial_port = serial.Serial(GPS_PORT, GPS_BAUDRATE, timeout=1)
+                logger.info("GPS serial connection established")
+            except Exception as e:
+                logger.error(f"Failed to open GPS serial port: {e}")
+                logger.warning("Falling back to MOCK mode")
+                self.mock_mode = True
+                self.mock_path = self._generate_mock_path()
+    
+    def _generate_mock_path(self) -> list:
+        """Generate a mock GPS path for testing (Bangalore route)"""
+        # Sample path: Indiranagar to Majestic
+        return [
+            (12.9716, 77.5946),  # Start: Indiranagar
+            (12.9720, 77.5950),
+            (12.9730, 77.5960),
+            (12.9740, 77.5965),  # Walking to bus stop
+            (12.9750, 77.5970),  # Bus stop
+            (12.9760, 77.5920),  # On bus
+            (12.9770, 77.5850),
+            (12.9780, 77.5800),
+            (12.9785, 77.5750),
+            (12.9767, 77.5715),  # Near Majestic
+        ]
+    
+    def start(self):
+        """Start GPS tracking"""
+        self.is_running = True
+        if not self.mock_mode:
+            self.tracking_thread = threading.Thread(target=self._read_gps_loop, daemon=True)
+            self.tracking_thread.start()
+        logger.info("GPS tracking started")
+    
+    def stop(self):
+        """Stop GPS tracking"""
+        self.is_running = False
+        if not self.mock_mode and hasattr(self, 'serial_port'):
+            self.serial_port.close()
+        logger.info("GPS tracking stopped")
+    
+    def get_position(self) -> Optional[Tuple[float, float]]:
+        """
+        Get current GPS position
+        
+        Returns:
+            Tuple of (latitude, longitude) or None if unavailable
+        """
+        if self.mock_mode:
+            return self._get_mock_position()
+        else:
+            return self.current_position
+    
+    def _get_mock_position(self) -> Tuple[float, float]:
+        """Get simulated GPS position"""
+        if self.mock_path_index >= len(self.mock_path):
+            self.mock_path_index = len(self.mock_path) - 1
+        
+        position = self.mock_path[self.mock_path_index]
+        self.current_position = position
+        self.last_update = time.time()
+        return position
+    
+    def advance_mock_position(self):
+        """Move to next position in mock path (for testing)"""
+        if self.mock_mode:
+            self.mock_path_index += 1
+            logger.info(f"Mock GPS advanced to position {self.mock_path_index}")
+    
+    def set_mock_path(self, path: list):
+        """Set custom mock GPS path"""
+        self.mock_path = path
+        self.mock_path_index = 0
+        logger.info(f"Set custom mock path with {len(path)} points")
+    
+    def _read_gps_loop(self):
+        """Read GPS data from serial port (for real GPS module)"""
+        while self.is_running:
+            try:
+                line = self.serial_port.readline().decode('utf-8', errors='ignore').strip()
+                
+                if line.startswith('$GPGGA') or line.startswith('$GPRMC'):
+                    position = self._parse_nmea(line)
+                    if position:
+                        self.current_position = position
+                        self.last_update = time.time()
+                        
+            except Exception as e:
+                logger.error(f"Error reading GPS data: {e}")
+                time.sleep(1)
+    
+    def _parse_nmea(self, nmea_sentence: str) -> Optional[Tuple[float, float]]:
+        """
+        Parse NMEA sentence to extract GPS coordinates
+        
+        Supports GPGGA and GPRMC formats
+        """
+        try:
+            parts = nmea_sentence.split(',')
+            
+            if nmea_sentence.startswith('$GPGGA'):
+                # $GPGGA format: ..., lat, N/S, lon, E/W, ...
+                if len(parts) < 6:
+                    return None
+                
+                lat_str = parts[2]
+                lat_dir = parts[3]
+                lon_str = parts[4]
+                lon_dir = parts[5]
+                
+                if not lat_str or not lon_str:
+                    return None
+                
+                # Convert DDMM.MMMM to DD.DDDDDD
+                lat = self._convert_to_degrees(lat_str, lat_dir)
+                lon = self._convert_to_degrees(lon_str, lon_dir)
+                
+                return (lat, lon)
+                
+            elif nmea_sentence.startswith('$GPRMC'):
+                # $GPRMC format: ..., lat, N/S, lon, E/W, speed, ...
+                if len(parts) < 8:
+                    return None
+                
+                lat_str = parts[3]
+                lat_dir = parts[4]
+                lon_str = parts[5]
+                lon_dir = parts[6]
+                
+                if not lat_str or not lon_str:
+                    return None
+                
+                lat = self._convert_to_degrees(lat_str, lat_dir)
+                lon = self._convert_to_degrees(lon_str, lon_dir)
+                
+                # Parse speed (knots)
+                if len(parts) > 7 and parts[7]:
+                    self.speed = float(parts[7]) * 0.514444  # knots to m/s
+                
+                return (lat, lon)
+                
+        except Exception as e:
+            logger.error(f"Error parsing NMEA: {e}")
+            return None
+    
+    def _convert_to_degrees(self, coord_str: str, direction: str) -> float:
+        """Convert NMEA coordinate format to decimal degrees"""
+        # NMEA format: DDMM.MMMM or DDDMM.MMMM
+        if len(coord_str) < 4:
+            return 0.0
+        
+        # Find decimal point
+        dot_index = coord_str.find('.')
+        if dot_index < 0:
+            return 0.0
+        
+        # Degrees are before the last 2 digits before decimal
+        if dot_index >= 4:  # Longitude (DDDMM.MMMM)
+            degrees = float(coord_str[:dot_index-2])
+            minutes = float(coord_str[dot_index-2:])
+        else:  # Latitude (DDMM.MMMM)
+            degrees = float(coord_str[:dot_index-2])
+            minutes = float(coord_str[dot_index-2:])
+        
+        decimal_degrees = degrees + (minutes / 60.0)
+        
+        # Apply direction
+        if direction in ['S', 'W']:
+            decimal_degrees = -decimal_degrees
+        
+        return decimal_degrees
+    
+    def is_available(self) -> bool:
+        """Check if GPS is available and working"""
+        if self.mock_mode:
+            return True
+        return self.current_position is not None
+    
+    def get_speed(self) -> float:
+        """Get current speed in m/s"""
+        return self.speed
+    
+    def get_heading(self) -> float:
+        """Get current heading in degrees"""
+        return self.heading
+
+
+# Example usage and testing
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    
+    print("\n=== Testing GPS Tracker ===")
+    gps = GPSTracker(mock_mode=True)
+    gps.start()
+    
+    print("\nSimulating movement along path:")
+    for i in range(10):
+        pos = gps.get_position()
+        if pos:
+            print(f"  Position {i+1}: {pos[0]:.6f}, {pos[1]:.6f}")
+            gps.advance_mock_position()
+            time.sleep(0.5)
+        else:
+            print(f"  Position {i+1}: GPS not available")
+    
+    gps.stop()
+    print("\n✓ GPS Tracker test complete!")

@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Models (auto-download)
+models/
+*.pt
+*.onnx
+*.pth
+
+# Database
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test outputs
+test/test_data/
+test/output/
+*.jpg
+*.png
+*.mp4
+*.avi
+
+# Audio temp files
+*.mp3
+*.wav
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+
+# Temporary files
+temp/
+tmp/
+*.tmp
